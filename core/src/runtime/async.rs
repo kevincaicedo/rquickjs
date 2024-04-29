@@ -243,6 +243,34 @@ impl AsyncRuntime {
         unsafe { self.inner.lock().await.runtime.memory_usage() }
     }
 
+    pub async fn is_job_empty(&self) -> bool {
+        let lock = self.inner.lock().await;
+
+        lock.runtime.is_job_pending()
+    }
+
+    /// Execute first pending job
+    ///
+    /// Returns true when job was executed or false when queue is empty or error when exception thrown under execution.
+    #[inline]
+    pub async fn execute_job(&self) -> StdResult<bool, AsyncJobException> {
+        let mut lock = self.inner.lock().await;
+        lock.runtime.update_stack_top();
+        lock.drop_pending();
+
+        let job_res = lock.runtime.execute_pending_job().map_err(|e| {
+            let ptr =
+                NonNull::new(e).expect("executing pending job returned a null context on error");
+            AsyncJobException(unsafe { AsyncContext::from_raw(ptr, self.clone()) })
+        })?;
+        
+        if job_res {
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     /// Test for pending jobs
     ///
     /// Returns true when at least one job is pending.
